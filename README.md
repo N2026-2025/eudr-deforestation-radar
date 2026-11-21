@@ -1,10 +1,153 @@
+# EUDR Deforestation Radar
+
+## EU Deforestation Regulation (EUDR) Compliance Pipeline
+
+A comprehensive data engineering pipeline for EUDR compliance monitoring, capable of ingesting multi-source geospatial data, performing spatial joins with H3 indexing, detecting deforestation alerts, and generating Due Diligence Statements (DDS) for EU regulatory submission.
+
+**Status:** ✅ **26/26 tests passing** | **Production-ready** | **GitHub:** [N2026-2025/eudr-deforestation-radar](https://github.com/N2026-2025/eudr-deforestation-radar)
 # EUDR Deforestation Radar — Implementation Plan
 
 **Context:** Supply Chain Compliance & Deforestation Radar for EU Deforestation Regulation (EUDR) compliance. Tracks agricultural lots (soy, beef, timber) from origin to EU port, verifying they come from deforestation-free land post-2020.
 
 ---
 
+## 🏗️ Engineering Architecture
+
+### Data Pipeline Overview
+
+```mermaid
+flowchart LR
+    subgraph Ingestion [📥 Ingestion Layer]
+        GFW[GFW Extractor] -->|Satellite Alerts| Bronze[(Bronze Layer)]
+        FIRMS[FIRMS Extractor] -->|Active Fires|
+        COMTrade[COMTrade Extractor] -->|Trade Data|
+        MAGYP[MAGYP Extractor] -->|Argentine Production|
+        PC[Planetary Computer] -->|Sentinel-2 Imagery|
+    end
+
+    subgraph Transform [🔄 Transform Layer]
+        H3[H3 Indexing (res=8)] -->|Spatial Aggregation| Silver[(Silver Layer - DuckDB)]
+        Detect[Deforestation Detection] -->|Risk Flags|
+        Validate[Quality Gates] -->|Dead-letter Handling|
+    end
+
+    subgraph Load [📊 Load Layer]
+        DuckDB[(DuckDB Analytics)] -->|RTREE Index| Gold[(PostGIS Gold Layer)]
+        DDS[DDS Generator] -->|EU IS v3 JSON| API[(EU Information System)]
+    end
+
+    subgraph Validate [✅ Validation Layer]
+        Quality[Quality Gates] -->|Configurable Gates| DLQ[(Dead-letter Queue)]
+        Provenance[Provenance Tracking] -->|SHA-256 + Timestamps|
+    end
+```
+
+### Layer Details
+
+| Layer | Technology | Purpose |
+|-------|-----------|---------|
+| **Bronze** | `Parquet` (via PyArrow) | Raw data ingestion, immutable provenance |
+| **Silver** | `DuckDB + GeoParquet` | Transformed data, H3 indexing, area computation |
+| **Gold** | `PostGIS` | Spatial queries, upsert operations, RTREE/GIST indices |
+| **DDS** | `JSON v3 + Base64 GeoJSON` | EU Information System submission format |
+
+### Key Engineering Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| **H3 Resolution 8** | Balances granularity (~1 ha cells) with performance for 5-source joins |
+| **shapely.make_valid** | Repairs invalid geometries from external APIs before processing |
+| **DuckDB over PostGIS** | Lightweight analytical queries; spatial extension for RTREE indices |
+| **Dead-letter Queue** | Quality gate failures produce records instead of hard failures → auditability |
+| **Pydantic v2** | Data contracts enforced at model level; full type hints; `from __future__ import annotations` |
+| **Tenacity retry** | Exponential backoff (`wait_exponential`) for external API resilience |
+| **Structlog JSON** | Structured logging for correlation in production environments |
+
+## 📦 Technology Stack
+
+### Core Dependencies (25+ packages)
+
+| Category | Packages |
+|----------|----------|
+| **Language** | Python 3.11 |
+| **Data** | pandas, pyarrow, numpy |
+| **Geospatial** | geopandas, shapely, pyproj, rasterio, h3 |
+| **Database** | duckdb, psycopg2-binary, PostGIS |
+| **Validation** | pydantic>=2.8.0, pydantic-settings, cerberus |
+| **HTTP & Retry** | requests, tenacity |
+| **Logging** | structlog |
+| **Testing** | pytest, pytest-cov, pytest-mock |
+| **Linting** | ruff, mypy, pre-commit |
+
+### Architecture Patterns Applied
+
+- **Base Class Pattern** - `BaseExtractor` abstract class implemented by 5 data sources
+- **Pipeline Pattern** - `EUDRPipeline.run_full_pipeline()` orchestrating extract→transform→validate→load→DDS
+- **Repository Pattern** - `DuckDBLoader`/`PostGISLoader` for data persistence
+- **Dead Letter Queue** - Quality gate failures produce records instead of hard failures
+- **Strategy Pattern** - Different extractors implementing same interface
+
+---
+
+## 📂 Project Structure
+
+```
+eudr-deforestation-radar/
+├── .env                          # Environment configuration (API keys, DB conn)
+├── .gitignore                    # Excludes pycache, .data, artifacts
+├── pyproject.toml                # Dependencies, metadata, tool config
+├── guia.md                       # Detailed user guide (Spanish)
+├── README.md                     # This file (English)
+├── create_output.txt             # Repository creation log
+├── .kilo/plans/                  # Project planning documents
+│   └── 1795252072765-eudr-deforestation-radar-plan.md
+├── src/                          # Source code package
+│   ├── __init__.py
+│   ├── extractors/               # 5 data source extractors
+│   │   ├── __init__.py
+│   │   ├── base.py               # BaseExtractor + Provenance dataclass
+│   │   ├── gfw.py                # GFW/Global Forest Watch
+│   │   ├── firms.py              # NASA FIRMS active fires
+│   │   ├── comtrade.py           # UN COMTrade API
+│   │   ├── planetary_computer.py # STAC/Sentinel-2
+│   │   └── magyp.py              # MAGyP Argentina
+│   ├── transform/                # Geometry + H3 indexing
+│   │   ├── __init__.py
+│   │   ├── geometry_transformer.py # CRS, make_valid, area computation
+│   │   ├── h3_indexer.py         # H3 cell conversion, polygon_to_cells
+│   │   └── silver_transformer.py # Bronze → Silver pipeline
+│   ├── validate/                 # Quality gates + dead-letter
+│   │   ├── __init__.py
+│   │   ├── quality_gates.py      # run_quality_gates(), QualityGateConfig
+│   │   ├── dead_letter.py        # DeadLetterEntry, ValidationPipeline
+│   │   └── schemas.py            # Validation schemas
+│   ├── load/                     # DuckDB + PostGIS loading
+│   │   ├── __init__.py
+│   │   ├── duckdb_loader.py      # DuckDBLoader with spatial indices
+│   │   └── postgis_loader.py     # PostGISLoader with upsert capability
+│   ├── pipeline.py               # EUDRPipeline orchestrator
+│   └── dds/                      # DDS generation v3
+│       ├── __init__.py
+│       └── generator.py          # DDSGenerator, risk assessment, base64 GeoJSON
+└── tests/                        # 26 unit tests (100% passing)
+    ├── test_transform/test_transform.py
+    ├── test_extractors/test_extractors.py
+    ├── test_validate/test_validate.py
+    └── test_dds/test_dds.py
+```
+
+---
+
 ## 1. Project Objectives
+
+| Objective | Description |
+|---|---|
+| **EUDR Compliance** | Automate due diligence statement generation per EU IS DDS v3 schema; avoid 4% turnover fines + cargo confiscation. |
+| **Multi-Source Tracing** | Integrate 5 data sources: GFW alerts, Planetary Computer Sentinel-2, UN Comtrade, Argentine MAGyP, NASA FIRMS. |
+| **Lot-Level Risk Scoring** | Per-lot deforestation flag + risk assessment (country risk + supply chain complexity + third-party certification). |
+| **Audit Trail** | Immutable provenance (SHA-256, timestamps, API response codes) for all ingested data; 5-year record retention. |
+| **Scalable ETL** | Batch pipeline (nightly/hourly) for compliance; streaming only for FIRMS near-real-time alerts.
+```
 
 | Objective | Description |
 |---|---|
