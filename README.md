@@ -63,6 +63,138 @@ flowchart LR
 | **Tenacity retry** | Exponential backoff (`wait_exponential`) for external API resilience |
 | **Structlog JSON** | Structured logging for correlation in production environments |
 
+## 🖼️ Visualizaciones Adicionales de Arquitectura
+
+---
+
+### 📊 Visualización 1: Data Flow Architecture (Mermaid LR)
+
+```mermaid
+flowchart LR
+    S1[GFW API<br/>Satellite]
+    S2[FIRMS API<br/>Fire Alerts]
+    S3[Comtrade API<br/>Trade Data]
+    S4[MAGyP API<br/>Production]
+    S5[Planetary Computer<br/>Sentinel-2]
+    B[(Bronze<br/>Parquet)]
+    T[Transform<br/>H3 Index<br/>Geometry]
+    S[(Silver<br/>DuckDB)]
+    V[Validate<br/>Quality Gates]
+    G[(Gold<br/>PostGIS)]
+    D[DDS v3<br/>JSON Payload]
+    E[EU Info System<br/>Compliance]
+    S1 -->|Ingest| B
+    S2 -->|Ingest| B
+    S3 -->|Ingest| B
+    S4 -->|Ingest| B
+    S5 -->|Ingest| B
+    B -->|Clean| T
+    T -->|Load| S
+    S -->|Check| V
+    V -->|Pass| G
+    G -->|Generate| D
+    D -->|Submit| E
+    style S1 fill:#e3f2fd,stroke:#1565c0
+    style S2 fill:#e3f2fd,stroke:#1565c0
+    style S3 fill:#e3f2fd,stroke:#1565c0
+    style S4 fill:#e3f2fd,stroke:#1565c0
+    style S5 fill:#e3f2fd,stroke:#1565c0
+    style B fill:#fff8e1,stroke:#f9a825
+    style T fill:#fff3e0,stroke:#e65100
+    style S fill:#e8f5e9,stroke:#2e7d32
+    style V fill:#f3e5f5,stroke:#7b1fa2
+    style G fill:#e1f5fe,stroke:#0288d1
+    style D fill:#e8f5e9,stroke:#2e7d32
+    style E fill:#ffebee,stroke:#c62828
+```
+
+---
+
+### 🗄️ Visualización 2: Capas de Almacenamiento (Data Lakehouse)
+
+```mermaid
+graph TD
+    subgraph Bronze["🥉 BRONZE LAYER - Raw Data"]
+        B1[Parquet Files<br/>Source: GFW]
+        B2[Parquet Files<br/>Source: FIRMS]
+        B3[Parquet Files<br/>Source: Comtrade]
+        B4[Parquet Files<br/>Source: MAGyP]
+        B5[GeoTIFF Files<br/>Source: Planetary Computer]
+        BP[Provenance JSON<br/>SHA-256 + Timestamps]
+    end
+    subgraph Silver["🥈 SILVER LAYER - Transformed"]
+        S1[DuckDB Tables<br/>H3 Cells Indexed]
+        S2[GeoParquet<br/>Valid Geometries]
+        S3[Area Computed<br/>CRS Normalized]
+    end
+    subgraph Gold["🥇 GOLD LAYER - Production"]
+        G1[PostGIS Tables<br/>RTREE Spatial Index]
+        G2[Upsert Logic<br/>Deduplication]
+        G3[Lot-Level Risk<br/>Scoring Ready]
+    end
+    subgraph DDS["📤 DDS OUTPUT - EU Submission"]
+        D1[JSON v3 Schema]
+        D2[Base64 GeoJSON]
+        D3[Audit Trail<br/>5-Year Retention]
+    end
+    Bronze -->|Clean + Transform| Silver
+    Silver -->|Validate + Load| Gold
+    Gold -->|Generate DDS| DDS
+    style Bronze fill:#ffebee,stroke:#c62828,stroke-width:2px
+    style Silver fill:#fff8e1,stroke:#f9a825,stroke-width:2px
+    style Gold fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    style DDS fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+```
+
+---
+
+### 💻 Visualización 3: Diagrama ASCII (para ver en terminal)
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    EUDR DEFORESTATION RADAR - ARCHITECTURA                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐     │
+│  │   GFW    │  │   FIRMS  │  │ Comtrade │  │   MAGyP  │  │ Planetary │     │
+│  │ Extractor│  │ Extractor│  │ Extractor│  │ Extractor│  │ Computer  │     │
+│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘     │
+│       │             │             │             │             │            │
+│       └─────────────┴─────────────┴─────────────┴─────────────┘            │
+│                           │                                                │
+│                           ▼                                                │
+│                    ┌─────────────┐                                          │
+│                    │   BRONZE    │  Raw Parquet + Provenance (SHA-256)     │
+│                    │   LAYER     │                                          │
+│                    └──────┬──────┘                                          │
+│                           │                                                │
+│                           ▼                                                │
+│                    ┌─────────────┐                                          │
+│                    │   SILVER    │  DuckDB + H3 Indexing (res=8)           │
+│                    │   LAYER     │                                          │
+│                    └──────┬──────┘                                          │
+│                           │                                                │
+│                           ▼                                                │
+│                    ┌─────────────┐                                          │
+│                    │   GOLD      │  PostGIS + RTREE Spatial Index          │
+│                    │   LAYER     │                                          │
+│                    └──────┬──────┘                                          │
+│                           │                                                │
+│                           ▼                                                │
+│                    ┌─────────────┐                                          │
+│                    │    DDS      │  EU IS v3 JSON + Base64 GeoJSON         │
+│                    │  GENERATOR  │                                          │
+│                    └──────┬──────┘                                          │
+│                           │                                                │
+│                           ▼                                                │
+│                    ┌─────────────┐                                          │
+│                    │  EU INFO    │  Direct POST Compliance Report          │
+│                    │   SYSTEM    │                                          │
+│                    └─────────────┘                                          │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
 ## 📦 Technology Stack
 
 ### Core Dependencies (25+ packages)
