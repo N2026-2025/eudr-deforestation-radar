@@ -1,0 +1,16 @@
+# Python bytecode cache
+__pycache__/
+*.pyc
+
+# Data directories
+.data/
+.coverage
+
+# Session artifacts
+create_*.ps1
+push_output.txt
+test.txt
+demo_pipeline.py
+
+# Environment
+.env.example
