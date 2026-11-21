@@ -17,29 +17,54 @@ A comprehensive data engineering pipeline for EUDR compliance monitoring, capabl
 
 ```mermaid
 flowchart LR
-    subgraph Ingestion [📥 Ingestion Layer]
-        GFW[GFW Extractor] -->|Satellite Alerts| Bronze[(Bronze Layer)]
-        FIRMS[FIRMS Extractor] -->|Active Fires| Bronze
-        COMTrade[COMTrade Extractor] -->|Trade Data| Bronze
-        MAGYP[MAGYP Extractor] -->|Argentine Production| Bronze
-        PC[Planetary Computer] -->|Sentinel-2 Imagery| Bronze
+    subgraph Ingestion["📥 Ingestion Layer"]
+        GFW["GFW Extractor"]
+        FIRMS["FIRMS Extractor"]
+        COMTrade["COMTrade Extractor"]
+        MAGYP["MAGYP Extractor"]
+        PC["Planetary Computer"]
+        Bronze[("Bronze")]
     end
 
-    subgraph Transform [🔄 Transform Layer]
-        H3[H3 Indexing (res=8)] -->|Spatial Aggregation| Silver[(Silver Layer - DuckDB)]
-        Detect[Deforestation Detection] -->|Risk Flags| Silver
-        Validate[Quality Gates] -->|Dead-letter Handling| DLQ[(Dead-letter Queue)]
+    subgraph Transform["🔄 Transform Layer"]
+        H3["H3 Indexing"]
+        Detect["Deforestation Detection"]
+        Silver[("Silver")]
     end
 
-    subgraph Load [📊 Load Layer]
-        DuckDB[(DuckDB Analytics)] -->|RTREE Index| Gold[(PostGIS Gold Layer)]
-        DDS[DDS Generator] -->|EU IS v3 JSON| API[(EU Information System)]
+    subgraph Load["📊 Load Layer"]
+        DuckDB[("DuckDB")]
+        Gold[("Gold")]
     end
 
-    subgraph Validate [✅ Validation Layer]
-        Quality[Quality Gates] -->|Configurable Gates| DLQ[(Dead-letter Queue)]
-        Provenance[Provenance Tracking] -->|SHA-256 + Timestamps| DLQ
+    subgraph Validate["✅ Validation Layer"]
+        Quality["Quality Gates"]
+        DLQ[("Dead-letter")]
     end
+
+    subgraph DDS["📤 DDS Output"]
+        Gen["DDS Generator"]
+        EU["EU Info System"]
+    end
+
+    GFW --> Bronze
+    FIRMS --> Bronze
+    COMTrade --> Bronze
+    MAGYP --> Bronze
+    PC --> Bronze
+
+    Bronze --> H3
+    H3 --> Silver
+    Detect --> Silver
+
+    Silver --> DuckDB
+    DuckDB --> Gold
+
+    Silver --> Quality
+    Quality --> DLQ
+
+    Gold --> Gen
+    Gen --> EU
 ```
 
 ### Layer Details
@@ -71,41 +96,30 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    S1[GFW API<br/>Satellite]
-    S2[FIRMS API<br/>Fire Alerts]
-    S3[Comtrade API<br/>Trade Data]
-    S4[MAGyP API<br/>Production]
-    S5[Planetary Computer<br/>Sentinel-2]
-    B[(Bronze<br/>Parquet)]
-    T[Transform<br/>H3 Index<br/>Geometry]
-    S[(Silver<br/>DuckDB)]
-    V[Validate<br/>Quality Gates]
-    G[(Gold<br/>PostGIS)]
-    D[DDS v3<br/>JSON Payload]
-    E[EU Info System<br/>Compliance]
-    S1 -->|Ingest| B
-    S2 -->|Ingest| B
-    S3 -->|Ingest| B
-    S4 -->|Ingest| B
-    S5 -->|Ingest| B
-    B -->|Clean| T
-    T -->|Load| S
-    S -->|Check| V
-    V -->|Pass| G
-    G -->|Generate| D
-    D -->|Submit| E
-    style S1 fill:#e3f2fd,stroke:#1565c0
-    style S2 fill:#e3f2fd,stroke:#1565c0
-    style S3 fill:#e3f2fd,stroke:#1565c0
-    style S4 fill:#e3f2fd,stroke:#1565c0
-    style S5 fill:#e3f2fd,stroke:#1565c0
-    style B fill:#fff8e1,stroke:#f9a825
-    style T fill:#fff3e0,stroke:#e65100
-    style S fill:#e8f5e9,stroke:#2e7d32
-    style V fill:#f3e5f5,stroke:#7b1fa2
-    style G fill:#e1f5fe,stroke:#0288d1
-    style D fill:#e8f5e9,stroke:#2e7d32
-    style E fill:#ffebee,stroke:#c62828
+    S1["GFW API<br/>Satellite"]
+    S2["FIRMS API<br/>Fire Alerts"]
+    S3["Comtrade API<br/>Trade Data"]
+    S4["MAGyP API<br/>Production"]
+    S5["Planetary Computer<br/>Sentinel-2"]
+    B[("Bronze")]
+    T["Transform"]
+    S[("Silver")]
+    V["Validate"]
+    G[("Gold")]
+    D["DDS v3"]
+    E["EU Info System"]
+
+    S1 --> B
+    S2 --> B
+    S3 --> B
+    S4 --> B
+    S5 --> B
+    B --> T
+    T --> S
+    S --> V
+    V --> G
+    G --> D
+    D --> E
 ```
 
 ---
@@ -114,36 +128,33 @@ flowchart LR
 
 ```mermaid
 graph TD
-    subgraph Bronze["🥉 BRONZE LAYER - Raw Data"]
-        B1[Parquet Files<br/>Source: GFW]
-        B2[Parquet Files<br/>Source: FIRMS]
-        B3[Parquet Files<br/>Source: Comtrade]
-        B4[Parquet Files<br/>Source: MAGyP]
-        B5[GeoTIFF Files<br/>Source: Planetary Computer]
-        BP[Provenance JSON<br/>SHA-256 + Timestamps]
+    subgraph Bronze["🥉 BRONZE LAYER"]
+        B1["Parquet: GFW"]
+        B2["Parquet: FIRMS"]
+        B3["Parquet: Comtrade"]
+        B4["Parquet: MAGyP"]
+        B5["GeoTIFF: Planetary Computer"]
+        BP["Provenance JSON"]
     end
-    subgraph Silver["🥈 SILVER LAYER - Transformed"]
-        S1[DuckDB Tables<br/>H3 Cells Indexed]
-        S2[GeoParquet<br/>Valid Geometries]
-        S3[Area Computed<br/>CRS Normalized]
+    subgraph Silver["🥈 SILVER LAYER"]
+        S1["DuckDB Tables"]
+        S2["GeoParquet"]
+        S3["Area Computed"]
     end
-    subgraph Gold["🥇 GOLD LAYER - Production"]
-        G1[PostGIS Tables<br/>RTREE Spatial Index]
-        G2[Upsert Logic<br/>Deduplication]
-        G3[Lot-Level Risk<br/>Scoring Ready]
+    subgraph Gold["🥇 GOLD LAYER"]
+        G1["PostGIS Tables"]
+        G2["Upsert Logic"]
+        G3["Risk Scoring"]
     end
-    subgraph DDS["📤 DDS OUTPUT - EU Submission"]
-        D1[JSON v3 Schema]
-        D2[Base64 GeoJSON]
-        D3[Audit Trail<br/>5-Year Retention]
+    subgraph DDS["📤 DDS OUTPUT"]
+        D1["JSON v3 Schema"]
+        D2["Base64 GeoJSON"]
+        D3["Audit Trail"]
     end
-    Bronze -->|Clean + Transform| Silver
-    Silver -->|Validate + Load| Gold
-    Gold -->|Generate DDS| DDS
-    style Bronze fill:#ffebee,stroke:#c62828,stroke-width:2px
-    style Silver fill:#fff8e1,stroke:#f9a825,stroke-width:2px
-    style Gold fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
-    style DDS fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+
+    Bronze --> Silver
+    Silver --> Gold
+    Gold --> DDS
 ```
 
 ---
