@@ -19,16 +19,16 @@ A comprehensive data engineering pipeline for EUDR compliance monitoring, capabl
 flowchart LR
     subgraph Ingestion [📥 Ingestion Layer]
         GFW[GFW Extractor] -->|Satellite Alerts| Bronze[(Bronze Layer)]
-        FIRMS[FIRMS Extractor] -->|Active Fires|
-        COMTrade[COMTrade Extractor] -->|Trade Data|
-        MAGYP[MAGYP Extractor] -->|Argentine Production|
-        PC[Planetary Computer] -->|Sentinel-2 Imagery|
+        FIRMS[FIRMS Extractor] -->|Active Fires| Bronze
+        COMTrade[COMTrade Extractor] -->|Trade Data| Bronze
+        MAGYP[MAGYP Extractor] -->|Argentine Production| Bronze
+        PC[Planetary Computer] -->|Sentinel-2 Imagery| Bronze
     end
 
     subgraph Transform [🔄 Transform Layer]
         H3[H3 Indexing (res=8)] -->|Spatial Aggregation| Silver[(Silver Layer - DuckDB)]
-        Detect[Deforestation Detection] -->|Risk Flags|
-        Validate[Quality Gates] -->|Dead-letter Handling|
+        Detect[Deforestation Detection] -->|Risk Flags| Silver
+        Validate[Quality Gates] -->|Dead-letter Handling| DLQ[(Dead-letter Queue)]
     end
 
     subgraph Load [📊 Load Layer]
@@ -38,7 +38,7 @@ flowchart LR
 
     subgraph Validate [✅ Validation Layer]
         Quality[Quality Gates] -->|Configurable Gates| DLQ[(Dead-letter Queue)]
-        Provenance[Provenance Tracking] -->|SHA-256 + Timestamps|
+        Provenance[Provenance Tracking] -->|SHA-256 + Timestamps| DLQ
     end
 ```
 
